@@ -1,0 +1,85 @@
+import { AnimatePresence, LayoutGroup, motion } from 'framer-motion'
+import { useEffect, useMemo, useState } from 'react'
+import type { Model } from '../lib/bpe'
+import { Chip } from './Chip'
+import { reducedMotion } from '../lib/ui'
+
+type Props = { corpus: string; setCorpus: (s: string) => void; model: Model; step: number; setStep: (n: number) => void }
+
+export function Train({ corpus, setCorpus, model, step, setStep }: Props) {
+  const [playing, setPlaying] = useState(false)
+  const total = model.merges.length
+
+  useEffect(() => {
+    if (!playing) return
+    if (step >= total) { setPlaying(false); return }
+    const t = setTimeout(() => setStep(step + 1), reducedMotion() ? 0 : 140)
+    return () => clearTimeout(t)
+  }, [playing, step, total, setStep])
+
+  // Tokens known after `step` merges: base characters plus the results of the merges so far.
+  const vocab = useMemo(() => {
+    const learned = new Set(model.merges.slice(0, step).map(m => m.a + m.b))
+    return [...model.vocab].filter(([t, id]) => id < model.base || learned.has(t))
+  }, [model, step])
+
+  const last = step > 0 ? model.merges[step - 1] : null
+  const play = () => { if (step >= total) setStep(0); setPlaying(p => !p) }
+
+  return (
+    <section id="train" className="wrap section">
+      <div className="section-head">
+        <span className="num">1</span>
+        <div>
+          <h2>Train a tokenizer</h2>
+          <p>
+            This is byte-pair encoding, the method behind GPT's tokenizer. It starts from single letters, finds the pair
+            that appears most often in your text, and glues it into a new token. Repeat, and common chunks like
+            <em> ing</em> and <em>the</em> emerge on their own.
+          </p>
+        </div>
+      </div>
+
+      <div className="train-grid">
+        <label className="field">
+          <span>Training text</span>
+          <textarea value={corpus} onChange={e => { setCorpus(e.target.value); setPlaying(false) }} rows={12} spellCheck={false} />
+          <small>{corpus.split(/\s+/).filter(Boolean).length} words. Edit anything and the tokenizer retrains instantly.</small>
+        </label>
+
+        <div className="merge-panel">
+          <div className="merge-controls">
+            <button className="btn small" onClick={play} disabled={!total}>{playing ? 'Pause' : step >= total ? 'Replay merges' : 'Play merges'}</button>
+            <input type="range" min={0} max={total} value={step} aria-label="Number of merges applied"
+              onChange={e => { setPlaying(false); setStep(+e.target.value) }} />
+            <span className="mono">{step}/{total}</span>
+          </div>
+
+          <div className="merge-now" aria-live="polite">
+            {last ? (
+                <motion.div key={step} className="merge-eq" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.15 }}>
+                  <Chip text={last.a} /> <span className="op">+</span> <Chip text={last.b} /> <span className="op">=</span>
+                  <Chip text={last.a + last.b} id={model.vocab.get(last.a + last.b)} fresh />
+                  <span className="merge-count">seen {last.count}×</span>
+                </motion.div>
+              ) : (
+                <p className="muted">No merges yet: every token is a single letter. Press play.</p>
+              )}
+          </div>
+
+          <div className="vocab-head">
+            <h3>Vocabulary</h3>
+            <span className="mono">{vocab.length} tokens</span>
+          </div>
+          <LayoutGroup>
+            <div className="vocab">
+              <AnimatePresence>
+                {vocab.map(([t, id]) => <Chip key={t} text={t} id={id} unknown={id === 0} fresh={!!last && t === last.a + last.b} />)}
+              </AnimatePresence>
+            </div>
+          </LayoutGroup>
+        </div>
+      </div>
+    </section>
+  )
+}
