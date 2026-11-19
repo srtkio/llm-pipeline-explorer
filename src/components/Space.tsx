@@ -91,6 +91,16 @@ function Path({ words, targets, cur, color, width }: { words: string[]; targets:
   return <Line ref={ref} points={words.map(w => targets.get(w)!)} color={color} lineWidth={width} transparent opacity={0.85} />
 }
 
+// The raw embedding: one cell per dimension, gold for positive, blue for negative.
+function Vector({ v }: { v: number[] }) {
+  const m = Math.max(...v.map(Math.abs)) || 1
+  return (
+    <div className="vec" role="img" aria-label={`${v.length}-number vector`}>
+      {v.map((x, i) => <i key={i} title={x.toFixed(3)} style={{ background: x >= 0 ? '#F2C14E' : '#8ECAE6', opacity: 0.08 + 0.92 * Math.abs(x) / m }} />)}
+    </div>
+  )
+}
+
 export default function Space({ corpusWords, sentenceWords }: { corpusWords: string[]; sentenceWords: string[] }) {
   const [mode, setMode] = useState<Mode>('spelling')
   const [selected, setSelected] = useState<string | null>(null)
@@ -183,7 +193,8 @@ export default function Space({ corpusWords, sentenceWords }: { corpusWords: str
         {sel ? (
           <>
             <h3>{sel}</h3>
-            <p className="muted">Closest by {shown}, measured in the full {vecs[0].length}-dimension space, not the 3D view.</p>
+            <Vector v={vecs[all.indexOf(sel)]} />
+            <p className="muted">Its {vecs[0].length} numbers above. Closest by {shown}, measured with all of them, not the 3D view:</p>
             <ol className="neighbors">
               {neighbors.map(n => (
                 <li key={n.w}>

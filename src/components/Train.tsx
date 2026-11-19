@@ -2,6 +2,7 @@ import { AnimatePresence, LayoutGroup, motion } from 'framer-motion'
 import { useEffect, useMemo, useState } from 'react'
 import type { Model } from '../lib/bpe'
 import { Chip } from './Chip'
+import { Head } from './Layout'
 import { PRESETS, reducedMotion } from '../lib/ui'
 
 type Props = { corpus: string; setCorpus: (s: string) => void; model: Model; step: number; setStep: (n: number) => void; setSentence: (s: string) => void }
@@ -28,17 +29,14 @@ export function Train({ corpus, setCorpus, model, step, setStep, setSentence }: 
 
   return (
     <section id="train" className="wrap section">
-      <div className="section-head">
-        <span className="num">1</span>
-        <div>
-          <h2>Train a tokenizer</h2>
-          <p>
-            This is byte-pair encoding, the method behind GPT's tokenizer. It starts from single letters, finds the pair
-            that appears most often in your text, and glues it into a new token. Repeat, and common chunks like
-            <em> ing</em> and <em>the</em> emerge on their own.
-          </p>
-        </div>
-      </div>
+      <Head step={1} title="Train a tokenizer" lead="Pick some text, press play, and watch letters fuse into tokens.">
+        <p>
+          This is byte-pair encoding, the method behind GPT's tokenizer. It starts from single letters, finds the pair
+          that appears most often in your text, and glues it into a new token. Repeat, and common chunks like
+          <em> ing</em> and <em>the</em> emerge on their own.
+        </p>
+        <p>The ▁ mark means a token ends a word, so <em>the▁</em> and the <em>the</em> inside <em>there</em> stay different tokens.</p>
+      </Head>
 
       <div className="train-grid">
         <div className="field">

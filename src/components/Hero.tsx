@@ -14,9 +14,7 @@ export function Hero({ model }: { model: Model }) {
         Watch a language model read.
       </motion.h1>
       <motion.p className="lede" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3, duration: 0.8 }}>
-        Before a model can think about your sentence, it chops it into pieces, swaps each piece
-        for a number, and places every word somewhere in space. Train your own tokenizer below and
-        follow a sentence all the way through. Everything runs in your browser.
+        Text becomes tokens, tokens become numbers, numbers become points in space. Try it on your own words.
       </motion.p>
 
       <div className="hero-demo" aria-label={`"${SAMPLE}" becomes token ids ${ids.join(', ')}`}>

@@ -1,11 +1,12 @@
 import { AnimatePresence } from 'framer-motion'
 import { Suspense, lazy, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
-import { train, words } from './lib/bpe'
+import { encode, train, words } from './lib/bpe'
 import { DEFAULT_CORPUS, DEFAULT_SENTENCE, reducedMotion } from './lib/ui'
 import { Intro } from './components/Intro'
 import { Hero } from './components/Hero'
 import { Train } from './components/Train'
 import { Encode } from './components/Encode'
+import { Head, Rail } from './components/Layout'
 
 // three.js only loads once the section is near. A tab opened before a redeploy asks for a chunk
 // that no longer exists, so reload once to pick up the new build instead of blanking the page.
@@ -52,15 +53,11 @@ export default function App() {
     <>
       <AnimatePresence>{intro && <Intro onDone={() => setIntro(false)} />}</AnimatePresence>
 
-      <nav className="nav wrap">
-        <a href="#top" className="logo"><span className="logo-a">token</span><span className="logo-b">scope</span></a>
-        <div className="nav-links">
-          <a href="#train">Train</a>
-          <a href="#encode">Encode</a>
-          <a href="#space">Embed</a>
-          <a href="https://github.com/srtkio/llm-pipeline-explorer" target="_blank" rel="noreferrer">Source</a>
-        </div>
-      </nav>
+      <Rail stages={[
+        { id: 'train', label: 'Tokens', value: `${model.base + at} in vocab` },
+        { id: 'encode', label: 'IDs', value: `${encode(sentence, model, at).length} for your sentence` },
+        { id: 'space', label: 'Vectors', value: `${corpusWords.length + sentenceWords.length} words in 3D` },
+      ]} />
 
       <main id="top">
         {!intro && <Hero model={HERO_MODEL} />}
@@ -68,17 +65,17 @@ export default function App() {
         <Encode model={model} step={at} sentence={sentence} setSentence={setSentence} />
 
         <section id="space" className="wrap section" ref={spaceRef}>
-          <div className="section-head">
-            <span className="num">3</span>
-            <div>
-              <h2>Place every word in space</h2>
-              <p>
-                A model turns each token into a long list of numbers, an embedding. Words with similar lists are treated
-                as similar. Here every word from your training text and your sentence is squeezed down to three
-                dimensions so you can fly around it. Compare two ways of deciding what "similar" means.
-              </p>
-            </div>
-          </div>
+          <Head step={3} title="Place every word in space" lead="Every word becomes a point. Close points mean similar words. Switch how similarity is measured.">
+            <p>
+              A model turns each token into a long list of numbers, an embedding. Words with similar lists are treated as
+              similar. Here every word from your training text and your sentence is squeezed from hundreds of dimensions
+              down to three with PCA so you can fly around it.
+            </p>
+            <p>
+              Spelling vectors count the letter pairs and triples in a word. Meaning vectors come from MiniLM, a small
+              neural network trained on a billion sentence pairs, running on your device.
+            </p>
+          </Head>
           {spaceNear
             ? <Suspense fallback={<div className="space space-wait">Loading the 3D view</div>}><Space corpusWords={corpusWords} sentenceWords={sentenceWords} /></Suspense>
             : <div className="space space-wait" />}
