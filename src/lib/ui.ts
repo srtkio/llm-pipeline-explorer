@@ -50,3 +50,9 @@ the doctor and the nurse worked in the hospital.
 the teacher and the student met at the school.
 the pilot flew the plane from the airport to the city.` },
 ]
+
+// Function words carry little meaning on their own and crowd an embedding map, so the 3D view hides them.
+export const STOPWORDS = new Set(`a an the and or but if then so of in on at by for from to with without into onto over under
+about as is am are was were be been being do does did have has had i you he she it we they me him her us them my your his its our
+their this that these those there here what which who whom when where why how all any each both some no not only too very can
+will would should could may might must shall just than while all also`.split(/\s+/))

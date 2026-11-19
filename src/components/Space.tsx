@@ -3,21 +3,27 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
-import { cosine, pca3, spellingVector } from '../lib/vectors'
+import { cosine, pca3, spellingVector, type Vec3 } from '../lib/vectors'
+import { cluster, umap3 } from '../lib/layout'
 import { reducedMotion } from '../lib/ui'
 
 type Mode = 'spelling' | 'meaning'
-type Role = 'selected' | 'neighbor' | 'sentence' | 'base'
+type Proj = 'umap' | 'pca'
+type Kind = 'base' | 'sentence' | 'neighbor' | 'selected'
 type Positions = Map<string, THREE.Vector3>
 
-const COLOR: Record<Role, string> = { selected: '#F28482', neighbor: '#84DCC6', sentence: '#F2C14E', base: '#C9D6E3' }
+const L = 4.6 // half-size of the plot box; layouts fit in ±4
+const HUES = ['#F2C14E', '#F28482', '#84DCC6', '#B8B8FF', '#8ECAE6', '#F7B267', '#C3E88D', '#FFB3D9']
+const GOLD = '#F2C14E'
+const SIZE: Record<Kind, number> = { base: 1, sentence: 1.6, neighbor: 1.4, selected: 2 }
+const hue = (c: number) => HUES[c % HUES.length]
 
 // Meaning vectors come from MiniLM running in a worker; each word is embedded once and cached.
 function useMeaning(words: string[], enabled: boolean) {
   const cache = useRef(new Map<string, number[]>())
   const worker = useRef<Worker | null>(null)
   const files = useRef(new Map<string, { loaded: number; total: number }>())
-  const [, setVersion] = useState(0)
+  const [version, setVersion] = useState(0)
   const [progress, setProgress] = useState({ loaded: 0, total: 0 })
   const [error, setError] = useState<string | null>(null)
 
@@ -44,46 +50,28 @@ function useMeaning(words: string[], enabled: boolean) {
     return () => clearTimeout(t)
   }, [words, enabled])
 
-  const ready = enabled && words.every(w => cache.current.has(w))
-  return { vectors: ready ? words.map(w => cache.current.get(w)!) : null, progress, error }
+  return { cache: cache.current, version, progress, error }
 }
 
-const L = 4.6 // half-size of the plot box; PCA output fits in ±4
-const tmp = new THREE.Color()
-
-// Soft radial sprite used for point halos and the sentence runner.
-let glowTex: THREE.Texture | null = null
-const glow = () => glowTex ??= (() => {
-  const c = document.createElement('canvas')
-  c.width = c.height = 64
-  const g = c.getContext('2d')!
-  const r = g.createRadialGradient(32, 32, 0, 32, 32, 32)
-  r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.2, 'rgba(255,255,255,.45)'); r.addColorStop(1, 'rgba(255,255,255,0)')
-  g.fillStyle = r
-  g.fillRect(0, 0, 64, 64)
-  return new THREE.CanvasTexture(c)
-})()
-
-// Principal axes with ticks and faint grid walls, so the space reads as a 3D plot.
-const AXES: [string, string, THREE.Vector3][] = [
-  ['PC1', '#F28482', new THREE.Vector3(1, 0, 0)],
-  ['PC2', '#84DCC6', new THREE.Vector3(0, 1, 0)],
-  ['PC3', '#8ECAE6', new THREE.Vector3(0, 0, 1)],
-]
-function Axes() {
+// A corner frame with ticks and a faint floor, so the space reads as a 3D plot.
+function Frame({ proj }: { proj: Proj }) {
+  const o = new THREE.Vector3(-L, -L, -L)
+  const dirs = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)]
   return (
     <group>
-      <gridHelper args={[2 * L, 12, '#2E5680', '#1A3A5E']} position={[0, -L, 0]} />
-      <gridHelper args={[2 * L, 12, '#24486F', '#163556']} position={[0, 0, -L]} rotation={[Math.PI / 2, 0, 0]} />
-      <gridHelper args={[2 * L, 12, '#24486F', '#163556']} position={[-L, 0, 0]} rotation={[0, 0, Math.PI / 2]} />
-      {AXES.map(([name, color, d]) => (
-        <group key={name}>
-          <Line points={[d.clone().multiplyScalar(-L), d.clone().multiplyScalar(L)]} color={color} lineWidth={1.2} transparent opacity={0.65} />
-          {[-4, -2, 2, 4].map(t => (
-            <mesh key={t} position={d.clone().multiplyScalar(t)}><sphereGeometry args={[0.03, 8, 8]} /><meshBasicMaterial color={color} /></mesh>
+      <gridHelper args={[2 * L, 10, '#2A5079', '#1B3A5E']} position={[0, -L, 0]}
+        onUpdate={g => { const m = g.material as THREE.Material; m.transparent = true; m.opacity = 0.45 }} />
+      {dirs.map((d, i) => (
+        <group key={i}>
+          <Line points={[o, o.clone().addScaledVector(d, 2 * L)]} color="#7F9AB8" lineWidth={1} />
+          {[1, 2, 3, 4, 5].map(t => (
+            <mesh key={t} position={o.clone().addScaledVector(d, (t * 2 * L) / 6)}>
+              <boxGeometry args={[0.05, 0.05, 0.05]} />
+              <meshBasicMaterial color="#7F9AB8" />
+            </mesh>
           ))}
-          <Html position={d.clone().multiplyScalar(L + 0.4)} center style={{ pointerEvents: 'none' }}>
-            <span className="axis" style={{ color }}>{name}</span>
+          <Html position={o.clone().addScaledVector(d, 2 * L + 0.45)} center style={{ pointerEvents: 'none' }} zIndexRange={[5, 0]}>
+            <span className="axis">{proj === 'umap' ? 'UMAP' : 'PC'} {i + 1}</span>
           </Html>
         </group>
       ))}
@@ -91,92 +79,131 @@ function Axes() {
   )
 }
 
-function Point({ word, target, role, hovered, delay, cur, onSelect, onHover }: {
-  word: string; target: THREE.Vector3; role: Role; hovered: boolean; delay: number; cur: Positions
+// A word. Injected words start at the origin and fly out after `delay`; others grow in place.
+function Point({ word, target, color, kind, label, labelClass, inject, delay, launchKey, cur, onSelect, onHover }: {
+  word: string; target: THREE.Vector3; color: string; kind: Kind; label: boolean; labelClass: string
+  inject: boolean; delay: number; launchKey: number; cur: Positions
   onSelect: (w: string) => void; onHover: (w: string | null) => void
 }) {
   const g = useRef<THREE.Group>(null!)
-  const halo = useRef<THREE.Sprite>(null!)
+  const core = useRef<THREE.Mesh>(null!)
+  const text = useRef<HTMLSpanElement>(null)
   const still = useMemo(reducedMotion, [])
   const start = useRef<number | null>(null)
-  useEffect(() => { start.current = null }, [target]) // each new layout replays as a staggered wave
+  const scale = useRef(0)
+  useEffect(() => {
+    start.current = null
+    if (inject && !still) cur.set(word, new THREE.Vector3())
+  }, [launchKey]) // relaunch only on replay, not on every prop change
   useFrame(({ clock }, dt) => {
     const t = clock.elapsedTime
     let p = cur.get(word)
-    if (!p) cur.set(word, (p = still ? target.clone() : new THREE.Vector3())) // new words are injected at the origin
-    start.current ??= t + delay
-    if (still || t >= start.current) p.lerp(target, still ? 1 : 1 - Math.exp(-dt * 4))
+    if (!p) cur.set(word, (p = inject && !still ? new THREE.Vector3() : target.clone()))
+    start.current ??= t + (still ? 0 : delay)
+    const live = t >= start.current
+    if (live) p.lerp(target, still ? 1 : 1 - Math.exp(-dt * 4.5))
     g.current.position.copy(p)
-    const pulse = role === 'selected' && !still ? 1 + 0.3 * Math.sin(t * 5) : 1
-    halo.current.scale.setScalar((role === 'base' ? (hovered ? 0.8 : 0.42) : 1) * pulse)
+    const want = live ? SIZE[kind] * (kind === 'selected' && !still ? 1 + 0.18 * Math.sin(t * 4) : 1) : 0
+    scale.current += (want - scale.current) * (still ? 1 : 1 - Math.exp(-dt * 10))
+    core.current.scale.setScalar(scale.current)
+    if (text.current) text.current.style.opacity = live ? '' : '0'
   })
   return (
     <group ref={g}>
-      <sprite ref={halo}>
-        <spriteMaterial map={glow()} color={COLOR[role]} transparent depthWrite={false} blending={THREE.AdditiveBlending} opacity={role === 'base' ? 0.55 : 0.95} />
-      </sprite>
-      <mesh scale={role !== 'base' || hovered ? 1.4 : 1}>
-        <sphereGeometry args={[0.055, 16, 16]} />
-        <meshBasicMaterial color={COLOR[role]} />
+      <mesh ref={core}>
+        <sphereGeometry args={[0.08, 20, 20]} />
+        <meshBasicMaterial color={kind === 'selected' ? '#FFFFFF' : color} />
       </mesh>
       {/* larger invisible target so small points are easy to click */}
       <mesh onClick={e => { e.stopPropagation(); onSelect(word) }}
         onPointerOver={e => { e.stopPropagation(); onHover(word); document.body.style.cursor = 'pointer' }}
         onPointerOut={() => { onHover(null); document.body.style.cursor = '' }}>
-        <sphereGeometry args={[0.22, 8, 8]} />
+        <sphereGeometry args={[0.24, 8, 8]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
-      <Html center position={[0, 0.24, 0]} distanceFactor={9} style={{ pointerEvents: 'none' }} zIndexRange={[10, 0]}>
-        <span className={`label is-${role}${hovered ? ' hover' : ''}`}>{word}</span>
+      {label && (
+        <Html center position={[0, 0.26, 0]} distanceFactor={10} style={{ pointerEvents: 'none' }} zIndexRange={[20, 10]}>
+          <span ref={text} className={`label ${labelClass}`}>{word}</span>
+        </Html>
+      )}
+    </group>
+  )
+}
+
+// A sentence word's embedding drawn as an arrow from the origin.
+function Arrow({ word, cur }: { word: string; cur: Positions }) {
+  const line = useRef<any>(null)
+  const head = useRef<THREE.Mesh>(null!)
+  const up = useMemo(() => new THREE.Vector3(0, 1, 0), [])
+  const dir = useMemo(() => new THREE.Vector3(), [])
+  const grow = useRef(reducedMotion() ? 1 : 0)
+  useFrame((_, dt) => {
+    grow.current = Math.min(1, grow.current + dt * 1.6)
+    const p = cur.get(word)
+    const len = p ? p.length() * (1 - (1 - grow.current) ** 3) : 0
+    head.current.visible = len > 0.3
+    if (!p || len < 1e-4) { line.current?.geometry.setPositions([0, 0, 0, 0, 0, 0]); return }
+    dir.copy(p).normalize()
+    const tail = Math.max(0, len - 0.16) // stop the shaft at the cone's base
+    line.current?.geometry.setPositions([0, 0, 0, dir.x * tail, dir.y * tail, dir.z * tail])
+    head.current.position.copy(dir).multiplyScalar(tail + 0.04)
+    head.current.quaternion.setFromUnitVectors(up, dir)
+  })
+  return (
+    <group>
+      <Line ref={line} points={[[0, 0, 0], [0, 0, 0]]} color={GOLD} lineWidth={1.6} transparent opacity={0.75} />
+      <mesh ref={head}>
+        <coneGeometry args={[0.07, 0.2, 14]} />
+        <meshBasicMaterial color={GOLD} />
+      </mesh>
+    </group>
+  )
+}
+
+// The sentence in reading order. Words not yet injected collapse onto the last injected one.
+function SentencePath({ words, cur }: { words: string[]; cur: Positions }) {
+  const ref = useRef<any>(null)
+  useFrame(() => {
+    let last: THREE.Vector3 | null = null
+    const flat: number[] = []
+    for (const w of words) {
+      const p = cur.get(w)
+      if (p && p.lengthSq() > 1e-6) last = p
+      const q = last ?? new THREE.Vector3()
+      flat.push(q.x, q.y, q.z)
+    }
+    ref.current?.geometry.setPositions(flat)
+  })
+  return <Line ref={ref} points={words.map(() => [0, 0, 0] as [number, number, number])} color={GOLD} lineWidth={2.4} transparent opacity={0.9} />
+}
+
+// A cluster's name, floating over the centre of its members.
+function ClusterLabel({ name, color, members, cur, dim }: { name: string; color: string; members: string[]; cur: Positions; dim: boolean }) {
+  const g = useRef<THREE.Group>(null!)
+  const c = useMemo(() => new THREE.Vector3(), [])
+  useFrame(() => {
+    c.set(0, 0, 0)
+    let n = 0
+    let top = -Infinity
+    for (const w of members) { const p = cur.get(w); if (p) { c.add(p); n++; top = Math.max(top, p.y) } }
+    if (n) g.current.position.set(c.x / n, top + 0.55, c.z / n)
+  })
+  return (
+    <group ref={g}>
+      <Html center style={{ pointerEvents: 'none' }} zIndexRange={[9, 0]}>
+        <span className="cl" style={{ color, opacity: dim ? 0.35 : 1 }}>{name}</span>
       </Html>
     </group>
   )
 }
 
-// Every embedding drawn as a vector from the origin, fading in from the centre.
-function Stems({ words, roleOf, cur }: { words: string[]; roleOf: (w: string) => Role; cur: Positions }) {
-  const geo = useMemo(() => {
-    const g = new THREE.BufferGeometry()
-    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(words.length * 6), 3))
-    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(words.length * 6), 3))
-    return g
-  }, [words.length])
-  useEffect(() => () => geo.dispose(), [geo])
+function Link({ from, to, cur }: { from: string; to: string; cur: Positions }) {
+  const ref = useRef<any>(null)
   useFrame(() => {
-    const pos = geo.attributes.position.array as Float32Array
-    const col = geo.attributes.color.array as Float32Array
-    words.forEach((w, i) => {
-      const p = cur.get(w)
-      if (!p) return
-      const role = roleOf(w), k = role === 'base' ? 0.3 : 0.9
-      tmp.set(COLOR[role])
-      pos.set([0, 0, 0, p.x, p.y, p.z], i * 6)
-      col.set([0, 0, 0, tmp.r * k, tmp.g * k, tmp.b * k], i * 6)
-    })
-    geo.attributes.position.needsUpdate = true
-    geo.attributes.color.needsUpdate = true
+    const a = cur.get(from), b = cur.get(to)
+    if (a && b) ref.current?.geometry.setPositions([a.x, a.y, a.z, b.x, b.y, b.z])
   })
-  return (
-    <lineSegments geometry={geo}>
-      <lineBasicMaterial vertexColors transparent blending={THREE.AdditiveBlending} depthWrite={false} />
-    </lineSegments>
-  )
-}
-
-// A light that travels your sentence word by word, in reading order.
-function Runner({ words, cur }: { words: string[]; cur: Positions }) {
-  const s = useRef<THREE.Sprite>(null!)
-  useFrame(({ clock }) => {
-    const pts = words.map(w => cur.get(w)).filter(Boolean) as THREE.Vector3[]
-    if (pts.length < 2) return
-    const f = (clock.elapsedTime * 1.3) % (pts.length - 1), i = Math.floor(f)
-    s.current.position.lerpVectors(pts[i], pts[i + 1], f - i)
-  })
-  return (
-    <sprite ref={s} scale={0.7}>
-      <spriteMaterial map={glow()} color="#FFF1BF" transparent depthWrite={false} blending={THREE.AdditiveBlending} />
-    </sprite>
-  )
+  return <Line ref={ref} points={[[0, 0, 0], [0, 0, 0]]} color="#FFFFFF" lineWidth={1} transparent opacity={0.45} />
 }
 
 // Glides the orbit centre to the selected word, and back to the origin when nothing is selected.
@@ -194,16 +221,6 @@ function Focus({ word, cur }: { word: string | null; cur: Positions }) {
   return null
 }
 
-// A polyline that follows the animated point positions every frame.
-function Path({ words, targets, cur, color, width }: { words: string[]; targets: Map<string, THREE.Vector3>; cur: Positions; color: string; width: number }) {
-  const ref = useRef<any>(null)
-  useFrame(() => {
-    const pts = words.map(w => cur.get(w) ?? targets.get(w)!)
-    ref.current?.geometry.setPositions(pts.flatMap(p => [p.x, p.y, p.z]))
-  })
-  return <Line ref={ref} points={words.map(w => targets.get(w)!)} color={color} lineWidth={width} transparent opacity={0.85} />
-}
-
 // The raw embedding: one cell per dimension, gold for positive, blue for negative.
 function Vector({ v }: { v: number[] }) {
   const m = Math.max(...v.map(Math.abs)) || 1
@@ -214,97 +231,142 @@ function Vector({ v }: { v: number[] }) {
   )
 }
 
+function Seg<T extends string>({ id, value, options, onChange, label }: { id: string; value: T; options: [T, string][]; onChange: (v: T) => void; label: string }) {
+  return (
+    <div className="seg" role="tablist" aria-label={label}>
+      {options.map(([v, text]) => (
+        <button key={v} role="tab" aria-selected={value === v} onClick={() => onChange(v)}>
+          {value === v && <motion.span layoutId={id} className="seg-pill" transition={{ type: 'spring', stiffness: 500, damping: 38 }} />}
+          <span>{text}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function Space({ corpusWords, sentenceWords }: { corpusWords: string[]; sentenceWords: string[] }) {
-  const [mode, setMode] = useState<Mode>('spelling')
+  const [mode, setMode] = useState<Mode>('meaning')
+  const [proj, setProj] = useState<Proj>('umap')
   const [selected, setSelected] = useState<string | null>(null)
   const [hovered, setHovered] = useState<string | null>(null)
   const [touched, setTouched] = useState(false)
+  const [replay, setReplay] = useState(0)
   const cur = useRef<Positions>(new Map()).current
 
-  const all = useMemo(() => [...new Set([...corpusWords, ...sentenceWords])], [corpusWords, sentenceWords])
-  const spelling = useMemo(() => all.map(w => spellingVector(w)), [all])
-  const meaning = useMeaning(all, mode === 'meaning')
-  const shown: Mode = mode === 'meaning' && meaning.vectors ? 'meaning' : 'spelling'
-  const vecs = shown === 'meaning' ? meaning.vectors! : spelling
+  const base = corpusWords
+  const baseSet = useMemo(() => new Set(base), [base])
+  const extra = useMemo(() => [...new Set(sentenceWords.filter(w => !baseSet.has(w)))], [sentenceWords, baseSet])
+  const wanted = useMemo(() => [...base, ...extra], [base, extra])
 
-  const pca = useMemo(() => pca3(vecs), [vecs])
-  const targets = useMemo(() => new Map(pca.points.map((p, i) => [all[i], new THREE.Vector3(...p)])), [pca, all])
+  const meaning = useMeaning(wanted, mode === 'meaning')
+  const meaningReady = base.length > 0 && base.every(w => meaning.cache.has(w))
+  const shown: Mode = mode === 'meaning' && meaningReady ? 'meaning' : 'spelling'
+  const vec = (w: string) => shown === 'meaning' ? meaning.cache.get(w) : spellingVector(w)
 
-  const sel = selected && all.includes(selected) ? selected : null
+  // The map is built from the training words only, so typing never reshuffles it.
+  const baseKey = `${shown}|${proj}|${base.join(' ')}`
+  const layout = useMemo(() => {
+    const rows = base.map(w => vec(w)!)
+    if (!rows.length) return { pos: [] as Vec3[], of: [] as number[], names: [] as string[][], kept: null as number | null, rows }
+    const p = proj === 'pca' ? pca3(rows) : null
+    const pos = p ? p.points : umap3(rows)
+    const { of } = cluster(pos, base, true) // cluster what you see, so colours match the islands
+    // Name each group by its two words closest to the group's mean vector in the full space.
+    const names = [...new Set(of)].sort((a, b) => a - b).map(c => {
+      const idx = of.flatMap((o, i) => o === c ? [i] : [])
+      const mean = rows[0].map((_, d) => idx.reduce((s, i) => s + rows[i][d], 0))
+      return idx.sort((a, b) => cosine(rows[b], mean) - cosine(rows[a], mean)).slice(0, 2).map(i => base[i])
+    })
+    return { pos, of, names, kept: p ? p.kept : null, rows }
+  }, [baseKey]) // baseKey captures base, shown and proj
+
+  // Typed words that aren't in the training text land between their 3 nearest training words.
+  const extras = useMemo(() => extra.flatMap(w => {
+    const v = vec(w)
+    if (!v || !layout.rows.length) return []
+    const near = layout.rows.map((r, i) => ({ i, s: cosine(v, r) })).sort((a, b) => b.s - a.s).slice(0, 3)
+    const wt = near.map(n => Math.max(n.s, 0.01)), W = wt.reduce((s, x) => s + x, 0)
+    const p = [0, 1, 2].map(k => near.reduce((s, n, j) => s + layout.pos[n.i][k] * wt[j], 0) / W) as Vec3
+    return [{ w, p, c: layout.of[near[0].i], v }]
+  }), [extra, layout, meaning.version]) // vec depends on shown, captured via layout
+
+  const all = useMemo(() => [...base, ...extras.map(e => e.w)], [base, extras])
+  const targets = useMemo(() => new Map<string, THREE.Vector3>([
+    ...base.map((w, i) => [w, new THREE.Vector3(...layout.pos[i])] as const),
+    ...extras.map(e => [e.w, new THREE.Vector3(...e.p)] as const),
+  ]), [base, extras, layout])
+  const clusterOf = useMemo(() => new Map<string, number>([...base.map((w, i) => [w, layout.of[i]] as const), ...extras.map(e => [e.w, e.c] as const)]), [base, extras, layout])
+  const members = useMemo(() => layout.names.map((_, c) => all.filter(w => clusterOf.get(w) === c)), [layout, all, clusterOf])
+
+  const sel = selected && targets.has(selected) ? selected : null
   const neighbors = useMemo(() => {
     if (!sel) return []
-    const v = vecs[all.indexOf(sel)]
-    return all.map((w, i) => ({ w, s: cosine(v, vecs[i]) })).filter(n => n.w !== sel).sort((a, b) => b.s - a.s).slice(0, 6)
-  }, [sel, vecs, all])
+    const v = vec(sel)!
+    return all.filter(w => w !== sel).map(w => ({ w, s: cosine(v, vec(w)!) })).sort((a, b) => b.s - a.s).slice(0, 6)
+  }, [sel, all, layout]) // layout changes whenever the vectors do
 
-  const inSentence = new Set(sentenceWords)
-  const near = new Set(neighbors.map(n => n.w))
-  const role = (w: string): Role => w === sel ? 'selected' : near.has(w) ? 'neighbor' : inSentence.has(w) ? 'sentence' : 'base'
   const path = sentenceWords.filter(w => targets.has(w))
-  const loading = mode === 'meaning' && !meaning.vectors
+  const order = useMemo(() => { const m = new Map<string, number>(); path.forEach((w, i) => { if (!m.has(w)) m.set(w, i) }); return m }, [path.join(' ')])
+  const near = new Set(neighbors.map(n => n.w))
+  const kind = (w: string): Kind => w === sel ? 'selected' : near.has(w) ? 'neighbor' : order.has(w) ? 'sentence' : 'base'
+
+  const loading = mode === 'meaning' && !meaningReady
   // shortcut: small config files finish before the model file starts, so measure against its known size; update if the model changes
   const total = Math.max(meaning.progress.total, 23.7e6)
   const pct = Math.round((meaning.progress.loaded / total) * 100)
+  const dims = all.length ? vec(all[0])!.length : 0
 
   return (
     <div className="space">
       <div className="space-canvas" onPointerDown={() => setTouched(true)}>
-        <Canvas camera={{ position: [7.5, 4.5, 9.5], fov: 45 }} dpr={[1, 2]} onPointerMissed={() => setSelected(null)}>
-          <fog attach="fog" args={['#0B2240', 13, 30]} />
-          <Axes />
-          <Stems words={all} roleOf={role} cur={cur} />
-          {all.map((w, i) => (
-            <Point key={w} word={w} target={targets.get(w)!} role={role(w)} hovered={hovered === w} delay={(i % 120) * 0.012}
-              cur={cur} onSelect={setSelected} onHover={setHovered} />
+        <Canvas camera={{ position: [7.2, 4.6, 8.8], fov: 42 }} dpr={[1, 2]} onPointerMissed={() => setSelected(null)}>
+          <fog attach="fog" args={['#0B2240', 16, 30]} />
+          <Frame proj={proj} />
+          {all.map((w, i) => {
+            const k = kind(w), o = order.get(w)
+            return (
+              <Point key={w} word={w} target={targets.get(w)!} color={hue(clusterOf.get(w) ?? 0)} kind={k}
+                label={k !== 'base' || hovered === w}
+                labelClass={hovered === w && k === 'base' ? 'w-hover' : `w-${k}`}
+                inject={o !== undefined || !baseSet.has(w)} launchKey={o !== undefined ? replay : 0}
+                delay={o !== undefined ? 0.4 + o * 0.35 : i * 0.006}
+                cur={cur} onSelect={setSelected} onHover={setHovered} />
+            )
+          })}
+          {[...order.keys()].map(w => <Arrow key={w} word={w} cur={cur} />)}
+          {path.length > 1 && <SentencePath words={path} cur={cur} />}
+          {layout.names.map((n, c) => members[c].length > 1 && (
+            <ClusterLabel key={`${shown}-${proj}-${c}`} name={n.join(', ')} color={hue(c)} members={members[c]} cur={cur} dim={!!sel && clusterOf.get(sel) !== c} />
           ))}
-          {path.length > 1 && <Path key={'s' + path.join()} words={path} targets={targets} cur={cur} color={COLOR.sentence} width={2.5} />}
-          {path.length > 1 && !reducedMotion() && <Runner words={path} cur={cur} />}
-          {sel && neighbors.map(n => <Path key={sel + n.w} words={[sel, n.w]} targets={targets} cur={cur} color={COLOR.neighbor} width={1.4} />)}
+          {sel && neighbors.map(n => <Link key={sel + n.w} from={sel} to={n.w} cur={cur} />)}
           <Focus word={sel} cur={cur} />
-          <OrbitControls makeDefault enableDamping enablePan={false} minDistance={3} maxDistance={22} autoRotate={!touched && !reducedMotion()} autoRotateSpeed={0.4} />
+          <OrbitControls makeDefault enableDamping enablePan={false} minDistance={4} maxDistance={24} autoRotate={!touched && !reducedMotion()} autoRotateSpeed={0.35} />
         </Canvas>
 
         <div className="space-toolbar">
-          <div className="seg" role="tablist" aria-label="Arrange words by">
-            {(['spelling', 'meaning'] as Mode[]).map(m => (
-              <button key={m} role="tab" aria-selected={mode === m} onClick={() => setMode(m)}>
-                {mode === m && <motion.span layoutId="seg" className="seg-pill" transition={{ type: 'spring', stiffness: 500, damping: 38 }} />}
-                <span>By {m}</span>
-              </button>
-            ))}
-          </div>
-          <p className="space-note">
-            {shown === 'spelling'
-              ? 'Each word becomes a vector of its letter pairs and triples. Words that share chunks, like playing and played, land together.'
-              : 'Each word is embedded by MiniLM, a small neural network trained on a billion sentences. Words used in similar ways, like king and queen, land together.'}
-          </p>
+          <Seg id="seg-mode" label="Measure similarity by" value={mode} onChange={setMode} options={[['meaning', 'Meaning'], ['spelling', 'Spelling']]} />
+          <Seg id="seg-proj" label="Projection" value={proj} onChange={setProj} options={[['umap', 'UMAP'], ['pca', 'PCA']]} />
         </div>
 
-        <div className="specs">
-          <code>{shown === 'meaning' ? 'Xenova/all-MiniLM-L6-v2, q8 ONNX, mean-pooled, L2-normalised' : 'char 2/3-gram FNV-1a hash, L2-normalised'}</code>
-          <code>float32[{all.length}×{vecs[0].length}] → PCA → [{all.length}×3], {Math.round(pca.kept * 100)}% variance kept</code>
-        </div>
-
-        <div className="legend" aria-hidden>
-          <span><i style={{ background: COLOR.sentence }} />your sentence</span>
-          <span><i style={{ background: COLOR.selected }} />selected</span>
-          <span><i style={{ background: COLOR.neighbor }} />nearest</span>
+        <div className="space-foot">
+          <button className="ghost" onClick={() => setReplay(r => r + 1)} disabled={!path.length}>Replay sentence</button>
+          <code>
+            {shown === 'meaning' ? 'MiniLM-L6-v2 q8' : 'char 2/3-gram hash'} float32[{all.length}×{dims}] → {proj === 'umap' ? 'UMAP (k=10, cosine)' : `PCA, ${Math.round((layout.kept ?? 0) * 100)}% variance kept`} → [{all.length}×3], k-means k={layout.names.length}, stopwords hidden
+          </code>
         </div>
 
         <AnimatePresence>
           {loading && (
-            <motion.div className="loader" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <motion.div className="loading-pill" role="status" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}>
               {meaning.error ? (
                 <>
-                  <p>The meaning model failed to load: {meaning.error}</p>
-                  <button className="btn small" onClick={() => setMode('spelling')}>Back to spelling view</button>
+                  <span>Meaning model failed to load, showing spelling.</span>
+                  <button className="ghost" onClick={() => setMode('spelling')}>OK</button>
                 </>
               ) : (
                 <>
-                  <div className="loader-orbit" aria-hidden>{[0, 1, 2, 3, 4, 5].map(i => <span key={i} style={{ '--i': i } as React.CSSProperties} />)}</div>
-                  <p>{pct < 100 ? `Downloading the meaning model, ${pct}%` : 'Embedding your words'}</p>
-                  <div className="bar"><motion.span animate={{ width: `${pct}%` }} /></div>
-                  <small>{(meaning.progress.loaded / 1e6).toFixed(1)} of {(total / 1e6).toFixed(1)} MB. Cached after the first visit.</small>
+                  <span>{pct < 100 ? `Loading meaning model, ${(meaning.progress.loaded / 1e6).toFixed(1)} of ${(total / 1e6).toFixed(1)} MB` : 'Embedding your words'}</span>
+                  <span className="bar"><motion.span animate={{ width: `${pct}%` }} /></span>
                 </>
               )}
             </motion.div>
@@ -316,9 +378,9 @@ export default function Space({ corpusWords, sentenceWords }: { corpusWords: str
         {sel ? (
           <>
             <h3>{sel}</h3>
-            <code className="coords">({targets.get(sel)!.toArray().map(x => x.toFixed(2)).join(', ')}) in PC space</code>
-            <Vector v={vecs[all.indexOf(sel)]} />
-            <p className="muted">Its {vecs[0].length} numbers above. Closest by {shown}, measured with all of them, not the 3D view:</p>
+            <code className="coords">({targets.get(sel)!.toArray().map(x => x.toFixed(2)).join(', ')}) in {proj.toUpperCase()} space</code>
+            <Vector v={vec(sel)!} />
+            <p className="muted">Its {dims} numbers. Nearest by {shown}, by cosine similarity over all of them:</p>
             <ol className="neighbors">
               {neighbors.map(n => (
                 <li key={n.w}>
@@ -331,12 +393,17 @@ export default function Space({ corpusWords, sentenceWords }: { corpusWords: str
           </>
         ) : (
           <>
-            <h3>Click a word</h3>
-            <p className="muted">
-              Drag to orbit, scroll to zoom. Pick any point to see its nearest neighbours. Then switch views and watch every
-              word move to where the other way of measuring puts it.
-            </p>
-            <p className="muted">Your sentence is drawn as a gold path, word by word, through the space.</p>
+            <h3>{layout.names.length} clusters</h3>
+            <p className="muted">Groups found by k-means on the map. Pick one, or click any point.</p>
+            <ul className="clusters">
+              {layout.names.map((n, c) => (
+                <li key={c}>
+                  <button onClick={() => setSelected(n[0])}>
+                    <i style={{ background: hue(c) }} />{n.join(', ')}<span className="mono">{members[c].length}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
           </>
         )}
       </aside>

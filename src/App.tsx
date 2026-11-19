@@ -1,7 +1,7 @@
 import { AnimatePresence } from 'framer-motion'
 import { Suspense, lazy, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { encode, train, words } from './lib/bpe'
-import { DEFAULT_CORPUS, DEFAULT_SENTENCE, reducedMotion } from './lib/ui'
+import { DEFAULT_CORPUS, DEFAULT_SENTENCE, STOPWORDS, reducedMotion } from './lib/ui'
 import { Intro } from './components/Intro'
 import { Hero } from './components/Hero'
 import { Train } from './components/Train'
@@ -45,8 +45,8 @@ export default function App() {
 
   const deferredCorpus = useDeferredValue(corpus)
   const deferredSentence = useDeferredValue(sentence)
-  const corpusWords = useMemo(() => [...new Set(wordList(deferredCorpus))].slice(0, MAX_POINTS), [deferredCorpus])
-  const sentenceWords = useMemo(() => wordList(deferredSentence), [deferredSentence])
+  const corpusWords = useMemo(() => [...new Set(wordList(deferredCorpus).filter(w => !STOPWORDS.has(w)))].slice(0, MAX_POINTS), [deferredCorpus])
+  const sentenceWords = useMemo(() => wordList(deferredSentence).filter(w => !STOPWORDS.has(w)), [deferredSentence])
   const [spaceRef, spaceNear] = useNear<HTMLElement>()
 
   return (
@@ -94,7 +94,7 @@ export default function App() {
             <div><dt>Meaning</dt><dd>all-MiniLM-L6-v2, transformers.js</dd></div>
             <div><dt>Compare</dt><dd>GPT-4 cl100k_base, js-tiktoken</dd></div>
             <div><dt>Render</dt><dd>three.js, react-three-fiber</dd></div>
-            <div><dt>Projection</dt><dd>PCA, power iteration</dd></div>
+            <div><dt>Projection</dt><dd>UMAP (umap-js) or PCA, k-means groups</dd></div>
           </dl>
           <nav className="footer-links" aria-label="Footer">
             <a href="https://github.com/srtkio/llm-pipeline-explorer" target="_blank" rel="noreferrer">Source on GitHub</a>

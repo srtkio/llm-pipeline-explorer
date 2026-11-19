@@ -1,6 +1,28 @@
 import { expect, test } from 'vitest'
 import { train, encode, decode, EOW } from './bpe'
 import { pca3, spellingVector, cosine } from './vectors'
+import { cluster, umap3 } from './layout'
+
+test('umap and k-means separate obvious groups deterministically', () => {
+  const ws = ['play', 'played', 'playing', 'player', 'plays', 'replay', 'zebra', 'zebras', 'zebu', 'zero', 'zeros', 'zest']
+  const rows = ws.map(w => spellingVector(w))
+  const a = umap3(rows), b = umap3(rows)
+  expect(a).toEqual(b)
+  expect(a).toHaveLength(ws.length)
+  a.forEach(p => p.forEach(x => { expect(Number.isFinite(x)).toBe(true); expect(Math.abs(x)).toBeLessThanOrEqual(4.0001) }))
+  const { of, names } = cluster(rows, ws)
+  expect(of.slice(0, 6).every(c => c === of[0])).toBe(true) // all "play" words share a cluster
+  expect(of[6]).not.toBe(of[0])
+  expect(names[of[0]]).toMatch(/play/)
+  expect(cluster([], [])).toEqual({ of: [], names: [] })
+  const pts = [[0, 0, 0], [0.1, 0, 0], [0, 0.1, 0], [5, 5, 5], [5.1, 5, 5], [5, 5.1, 5]]
+  const e = cluster(pts, ['a', 'b', 'c', 'x', 'y', 'z'], true)
+  expect(e.of[0]).toBe(e.of[2])
+  expect(e.of[3]).toBe(e.of[5])
+  expect(e.of[0]).not.toBe(e.of[3])
+  expect(e.names.every(Boolean)).toBe(true) // negative euclidean scores still yield a name
+  expect(umap3(rows.slice(0, 3))).toHaveLength(3) // tiny inputs fall back to PCA
+})
 
 const corpus = 'the cat sat on the mat. the cats sat. lower lowest newer newest'
 

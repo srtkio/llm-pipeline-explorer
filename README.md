@@ -8,9 +8,9 @@ Follow a sentence through the first stages of a language model, live in the brow
    - **By spelling.** Vectors built from each word's character n-grams (letter pairs and triples), so words with shared chunks like `playing` and `played` cluster together.
    - **By meaning.** Embeddings from `all-MiniLM-L6-v2`, run on your own device with transformers.js in a Web Worker, so words like `king` and `queen` cluster together.
 
-   Switching views animates every point from one layout to the other. Click a word to see its true nearest neighbours, measured in the full-dimension space. Your sentence is drawn as a path through the space.
+   The map is laid out with UMAP (or PCA, with the variance it keeps) and coloured by k-means groups, each named by its two most central words. Your sentence's words are injected as vectors from the origin and joined in reading order. Click a word to see its raw vector and nearest neighbours by cosine similarity. Stopwords are hidden from the map.
 
-No server is involved. Both modes reduce the vectors to 3D with PCA.
+No server is involved.
 
 ## Run
 
@@ -27,6 +27,7 @@ npm run build    # static build in dist/
 |---|---|
 | `src/lib/bpe.ts` | BPE training, encoding and decoding |
 | `src/lib/vectors.ts` | spelling vectors, cosine similarity, PCA to 3D |
+| `src/lib/layout.ts` | UMAP to 3D, k-means clustering |
 | `src/lib/embed.worker.ts` | MiniLM feature extraction in a worker |
 | `src/components/` | Intro loader, Hero, Train, Encode, Space (3D, lazy-loaded) |
 
