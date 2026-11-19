@@ -21,8 +21,9 @@ export function normalize(v: number[]) {
 export const cosine = (a: number[], b: number[]) => a.reduce((s, x, i) => s + x * b[i], 0)
 
 // PCA to 3D via power iteration with deflation on the covariance matrix.
-export function pca3(rows: number[][]): Vec3[] {
-  if (rows.length === 0) return []
+// `kept` is the share of total variance the three components explain.
+export function pca3(rows: number[][]): { points: Vec3[]; kept: number } {
+  if (rows.length === 0) return { points: [], kept: 0 }
   const d = rows[0].length
   const mean = new Array(d).fill(0)
   rows.forEach(r => r.forEach((x, i) => (mean[i] += x / rows.length)))
@@ -40,7 +41,9 @@ export function pca3(rows: number[][]): Vec3[] {
     }
     comps.push(v)
   }
+  const trace = C.reduce((s, row, i) => s + row[i], 0) || 1
+  const kept = comps.reduce((s, c) => s + cosine(c, C.map(row => cosine(row, c))), 0) / trace
   const pts = X.map(r => comps.map(c => cosine(r, c)) as Vec3)
   const scale = Math.max(...pts.flat().map(Math.abs)) || 1
-  return pts.map(p => p.map(x => (x / scale) * 4) as Vec3) // fit into a ±4 cube
+  return { points: pts.map(p => p.map(x => (x / scale) * 4) as Vec3), kept } // fit into a ±4 cube
 }

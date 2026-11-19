@@ -260,3 +260,18 @@ textarea:focus, .sentence:focus { outline: none; border-color: var(--sun); }
 .logo span { padding: 2px 6px; border-radius: 5px; color: var(--ink); }
 .logo-a { background: var(--sun); }
 .logo-b { background: var(--mint); }
+
+/* dev details */
+.ghost {
+  border: 1px solid var(--rule); background: none; color: var(--mute); cursor: pointer;
+  padding: 5px 12px; border-radius: 8px; font: 500 12px var(--mono);
+}
+.ghost:hover { color: var(--paper); border-color: var(--mute); }
+.ids-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.vocab-head { gap: 12px; }
+.vocab-head .mono { margin-left: auto; }
+.specs {
+  position: absolute; right: 16px; bottom: 12px; display: grid; justify-items: end; gap: 2px;
+  font-size: 11px; color: var(--mute); text-align: right; pointer-events: none;
+}
+@media (max-width: 860px) { .specs { display: none; } }

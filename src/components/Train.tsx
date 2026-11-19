@@ -5,6 +5,19 @@ import { Chip } from './Chip'
 import { Head } from './Layout'
 import { PRESETS, reducedMotion } from '../lib/ui'
 
+// Hugging Face tokenizers layout: model.vocab maps token to id, model.merges lists "a b" in rank order.
+function download(model: Model, step: number) {
+  const merges = model.merges.slice(0, step)
+  const keep = new Set(merges.map(m => m.a + m.b))
+  const vocab = Object.fromEntries([...model.vocab].filter(([t, id]) => id < model.base || keep.has(t)))
+  const json = { version: '1.0', model: { type: 'BPE', unk_token: '[UNK]', end_of_word_suffix: '</w>', vocab, merges: merges.map(m => `${m.a} ${m.b}`) } }
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' }))
+  a.download = 'tokenizer.json'
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
 type Props = { corpus: string; setCorpus: (s: string) => void; model: Model; step: number; setStep: (n: number) => void; setSentence: (s: string) => void }
 
 export function Train({ corpus, setCorpus, model, step, setStep, setSentence }: Props) {
@@ -74,6 +87,7 @@ export function Train({ corpus, setCorpus, model, step, setStep, setSentence }: 
           <div className="vocab-head">
             <h3>Vocabulary</h3>
             <span className="mono">{vocab.length} tokens</span>
+            <button className="ghost" onClick={() => download(model, step)}>Export tokenizer.json</button>
           </div>
           <LayoutGroup>
             <div className="vocab">

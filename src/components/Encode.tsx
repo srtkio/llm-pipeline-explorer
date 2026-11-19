@@ -22,6 +22,7 @@ type Props = { model: Model; step: number; sentence: string; setSentence: (s: st
 export function Encode({ model, step, sentence, setSentence }: Props) {
   const [hover, setHover] = useState<string | null>(null)
   const gpt = useGpt4()
+  const [copied, setCopied] = useState(false)
   const gptIds = gpt ? gpt.encode(sentence) : []
   const toks = encode(sentence, model, step)
   const unk = toks.filter(t => t.id === 0).length
@@ -60,13 +61,18 @@ export function Encode({ model, step, sentence, setSentence }: Props) {
       </LayoutGroup>
 
       <div className="ids">
-        <span className="hero-tag">what the model receives</span>
+        <div className="ids-head">
+          <span className="hero-tag">input_ids: int32[{toks.length}]</span>
+          <button className="ghost" onClick={() => navigator.clipboard?.writeText(JSON.stringify(toks.map(t => t.id))).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1200) })}>
+            {copied ? 'Copied' : 'Copy as JSON'}
+          </button>
+        </div>
         <code>[{toks.map((t, i) => <span key={i} className={hover === t.text ? 'hl' : undefined}>{t.id}{i < toks.length - 1 ? ', ' : ''}</span>)}]</code>
       </div>
       <div className="compare">
         <div className="compare-head">
           <h3>Same sentence, GPT-4's tokenizer</h3>
-          <span className="mono">{gpt ? `${gptIds.length} tokens vs your ${toks.length}` : 'loading'}</span>
+          <span className="mono">{gpt ? `cl100k_base, ${gptIds.length} tokens vs your ${toks.length}, ${(sentence.length / Math.max(1, gptIds.length)).toFixed(1)} vs ${(sentence.length / Math.max(1, toks.length)).toFixed(1)} chars/token` : 'loading cl100k_base'}</span>
         </div>
         <div className="token-stream">
           {gptIds.map((id, i) => <Chip key={`${i}-${id}`} text={gpt!.decode([id]).replace(/ /g, '␣')} id={id} />)}

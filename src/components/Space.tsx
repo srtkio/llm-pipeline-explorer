@@ -114,7 +114,8 @@ export default function Space({ corpusWords, sentenceWords }: { corpusWords: str
   const shown: Mode = mode === 'meaning' && meaning.vectors ? 'meaning' : 'spelling'
   const vecs = shown === 'meaning' ? meaning.vectors! : spelling
 
-  const targets = useMemo(() => new Map(pca3(vecs).map((p, i) => [all[i], new THREE.Vector3(...p)])), [vecs, all])
+  const pca = useMemo(() => pca3(vecs), [vecs])
+  const targets = useMemo(() => new Map(pca.points.map((p, i) => [all[i], new THREE.Vector3(...p)])), [pca, all])
 
   const sel = selected && all.includes(selected) ? selected : null
   const neighbors = useMemo(() => {
@@ -160,6 +161,11 @@ export default function Space({ corpusWords, sentenceWords }: { corpusWords: str
               ? 'Each word becomes a vector of its letter pairs and triples. Words that share chunks, like playing and played, land together.'
               : 'Each word is embedded by MiniLM, a small neural network trained on a billion sentences. Words used in similar ways, like king and queen, land together.'}
           </p>
+        </div>
+
+        <div className="specs">
+          <code>{shown === 'meaning' ? 'Xenova/all-MiniLM-L6-v2, q8 ONNX, mean-pooled, L2-normalised' : 'char 2/3-gram FNV-1a hash, L2-normalised'}</code>
+          <code>float32[{all.length}×{vecs[0].length}] → PCA → [{all.length}×3], {Math.round(pca.kept * 100)}% variance kept</code>
         </div>
 
         <div className="legend" aria-hidden>

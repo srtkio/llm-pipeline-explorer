@@ -21,7 +21,9 @@ test('bpe is deterministic and handles unseen chars', () => {
 test('spelling vectors cluster by spelling; pca returns 3d', () => {
   expect(cosine(spellingVector('playing'), spellingVector('player'))).toBeGreaterThan(
     cosine(spellingVector('playing'), spellingVector('mat')))
-  const pts = pca3(['cat', 'cats', 'mat', 'newest', 'lowest'].map(w => spellingVector(w)))
+  const { points: pts, kept } = pca3(['cat', 'cats', 'mat', 'newest', 'lowest'].map(w => spellingVector(w)))
+  expect(kept).toBeGreaterThan(0.5) // 5 points span at most 4 dims, so 3 PCs keep most variance
+  expect(kept).toBeLessThanOrEqual(1.0001)
   expect(pts).toHaveLength(5)
   pts.forEach(p => { expect(p).toHaveLength(3); p.forEach(x => expect(Number.isFinite(x)).toBe(true)) })
 })
