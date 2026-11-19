@@ -10,7 +10,7 @@ import { Encode } from './components/Encode'
 // three.js only loads once the section is near. A tab opened before a redeploy asks for a chunk
 // that no longer exists, so reload once to pick up the new build instead of blanking the page.
 const Space = lazy(() => import('./components/Space').then(m => { sessionStorage.removeItem('chunk-reload'); return m }, err => {
-  if (sessionStorage.getItem('chunk-reload')) throw err
+  if (sessionStorage.getItem('chunk-reload')) throw err // shortcut: no error boundary, so a second failure blanks the page; add one if this shows up
   sessionStorage.setItem('chunk-reload', '1')
   location.reload()
   return new Promise<never>(() => {})

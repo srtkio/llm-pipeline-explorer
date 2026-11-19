@@ -118,7 +118,9 @@ export default function Space({ corpusWords, sentenceWords }: { corpusWords: str
   const role = (w: string): Role => w === sel ? 'selected' : near.has(w) ? 'neighbor' : inSentence.has(w) ? 'sentence' : 'base'
   const path = sentenceWords.filter(w => targets.has(w))
   const loading = mode === 'meaning' && !meaning.vectors
-  const pct = meaning.progress.total ? Math.round((meaning.progress.loaded / meaning.progress.total) * 100) : 0
+  // shortcut: small config files finish before the model file starts, so measure against its known size; update if the model changes
+  const total = Math.max(meaning.progress.total, 23.7e6)
+  const pct = Math.round((meaning.progress.loaded / total) * 100)
 
   return (
     <div className="space">
@@ -169,7 +171,7 @@ export default function Space({ corpusWords, sentenceWords }: { corpusWords: str
                   <div className="loader-orbit" aria-hidden>{[0, 1, 2, 3, 4, 5].map(i => <span key={i} style={{ '--i': i } as React.CSSProperties} />)}</div>
                   <p>{pct < 100 ? `Downloading the meaning model, ${pct}%` : 'Embedding your words'}</p>
                   <div className="bar"><motion.span animate={{ width: `${pct}%` }} /></div>
-                  <small>{(meaning.progress.loaded / 1e6).toFixed(1)} of {meaning.progress.total ? (meaning.progress.total / 1e6).toFixed(1) : '~23'} MB. Cached after the first visit.</small>
+                  <small>{(meaning.progress.loaded / 1e6).toFixed(1)} of {(total / 1e6).toFixed(1)} MB. Cached after the first visit.</small>
                 </>
               )}
             </motion.div>
