@@ -82,11 +82,27 @@ export default function App() {
         </section>
       </main>
 
-      <footer className="wrap footer">
-        <p>
-          Tokenizer: byte-pair encoding written from scratch and trained live on your text. Spelling vectors: hashed
-          character n-grams. Meaning vectors: all-MiniLM-L6-v2 via transformers.js, run on your device. 3D layout: PCA.
-        </p>
+      <footer className="footer">
+        <div className="wrap footer-grid">
+          <div className="footer-credit">
+            <a href="#top" className="logo"><span className="logo-a">token</span><span className="logo-b">scope</span></a>
+            <p>Made by <a href="https://github.com/srtkio" target="_blank" rel="noreferrer">Sarthak Rai</a></p>
+          </div>
+          <dl className="footer-stack">
+            <div><dt>Tokenizer</dt><dd>BPE from scratch, trained live</dd></div>
+            <div><dt>Spelling</dt><dd>char 2/3-gram hashing</dd></div>
+            <div><dt>Meaning</dt><dd>all-MiniLM-L6-v2, transformers.js</dd></div>
+            <div><dt>Compare</dt><dd>GPT-4 cl100k_base, js-tiktoken</dd></div>
+            <div><dt>Render</dt><dd>three.js, react-three-fiber</dd></div>
+            <div><dt>Projection</dt><dd>PCA, power iteration</dd></div>
+          </dl>
+          <nav className="footer-links" aria-label="Footer">
+            <a href="https://github.com/srtkio/llm-pipeline-explorer" target="_blank" rel="noreferrer">Source on GitHub</a>
+            <a href="https://github.com/srtkio" target="_blank" rel="noreferrer">@srtkio</a>
+            <a href="#top">Back to top</a>
+          </nav>
+        </div>
+        <p className="wrap footer-note">Runs entirely in your browser. Your text never leaves your device.</p>
       </footer>
     </>
   )

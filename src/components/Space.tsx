@@ -1,5 +1,5 @@
 import { Html, Line, OrbitControls } from '@react-three/drei'
-import { Canvas, useFrame } from '@react-three/fiber'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
@@ -48,23 +48,75 @@ function useMeaning(words: string[], enabled: boolean) {
   return { vectors: ready ? words.map(w => cache.current.get(w)!) : null, progress, error }
 }
 
-function Point({ word, target, role, hovered, cur, onSelect, onHover }: {
-  word: string; target: THREE.Vector3; role: Role; hovered: boolean; cur: Positions
+const L = 4.6 // half-size of the plot box; PCA output fits in ±4
+const tmp = new THREE.Color()
+
+// Soft radial sprite used for point halos and the sentence runner.
+let glowTex: THREE.Texture | null = null
+const glow = () => glowTex ??= (() => {
+  const c = document.createElement('canvas')
+  c.width = c.height = 64
+  const g = c.getContext('2d')!
+  const r = g.createRadialGradient(32, 32, 0, 32, 32, 32)
+  r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.2, 'rgba(255,255,255,.45)'); r.addColorStop(1, 'rgba(255,255,255,0)')
+  g.fillStyle = r
+  g.fillRect(0, 0, 64, 64)
+  return new THREE.CanvasTexture(c)
+})()
+
+// Principal axes with ticks and faint grid walls, so the space reads as a 3D plot.
+const AXES: [string, string, THREE.Vector3][] = [
+  ['PC1', '#F28482', new THREE.Vector3(1, 0, 0)],
+  ['PC2', '#84DCC6', new THREE.Vector3(0, 1, 0)],
+  ['PC3', '#8ECAE6', new THREE.Vector3(0, 0, 1)],
+]
+function Axes() {
+  return (
+    <group>
+      <gridHelper args={[2 * L, 12, '#2E5680', '#1A3A5E']} position={[0, -L, 0]} />
+      <gridHelper args={[2 * L, 12, '#24486F', '#163556']} position={[0, 0, -L]} rotation={[Math.PI / 2, 0, 0]} />
+      <gridHelper args={[2 * L, 12, '#24486F', '#163556']} position={[-L, 0, 0]} rotation={[0, 0, Math.PI / 2]} />
+      {AXES.map(([name, color, d]) => (
+        <group key={name}>
+          <Line points={[d.clone().multiplyScalar(-L), d.clone().multiplyScalar(L)]} color={color} lineWidth={1.2} transparent opacity={0.65} />
+          {[-4, -2, 2, 4].map(t => (
+            <mesh key={t} position={d.clone().multiplyScalar(t)}><sphereGeometry args={[0.03, 8, 8]} /><meshBasicMaterial color={color} /></mesh>
+          ))}
+          <Html position={d.clone().multiplyScalar(L + 0.4)} center style={{ pointerEvents: 'none' }}>
+            <span className="axis" style={{ color }}>{name}</span>
+          </Html>
+        </group>
+      ))}
+    </group>
+  )
+}
+
+function Point({ word, target, role, hovered, delay, cur, onSelect, onHover }: {
+  word: string; target: THREE.Vector3; role: Role; hovered: boolean; delay: number; cur: Positions
   onSelect: (w: string) => void; onHover: (w: string | null) => void
 }) {
   const g = useRef<THREE.Group>(null!)
+  const halo = useRef<THREE.Sprite>(null!)
   const still = useMemo(reducedMotion, [])
-  useFrame((_, dt) => {
+  const start = useRef<number | null>(null)
+  useEffect(() => { start.current = null }, [target]) // each new layout replays as a staggered wave
+  useFrame(({ clock }, dt) => {
+    const t = clock.elapsedTime
     let p = cur.get(word)
-    if (!p) cur.set(word, (p = target.clone()))
-    p.lerp(target, still ? 1 : 1 - Math.exp(-dt * 3.2))
+    if (!p) cur.set(word, (p = still ? target.clone() : new THREE.Vector3())) // new words are injected at the origin
+    start.current ??= t + delay
+    if (still || t >= start.current) p.lerp(target, still ? 1 : 1 - Math.exp(-dt * 4))
     g.current.position.copy(p)
+    const pulse = role === 'selected' && !still ? 1 + 0.3 * Math.sin(t * 5) : 1
+    halo.current.scale.setScalar((role === 'base' ? (hovered ? 0.8 : 0.42) : 1) * pulse)
   })
-  const big = role !== 'base' || hovered
   return (
     <group ref={g}>
-      <mesh scale={big ? 1.5 : 1}>
-        <sphereGeometry args={[0.07, 16, 16]} />
+      <sprite ref={halo}>
+        <spriteMaterial map={glow()} color={COLOR[role]} transparent depthWrite={false} blending={THREE.AdditiveBlending} opacity={role === 'base' ? 0.55 : 0.95} />
+      </sprite>
+      <mesh scale={role !== 'base' || hovered ? 1.4 : 1}>
+        <sphereGeometry args={[0.055, 16, 16]} />
         <meshBasicMaterial color={COLOR[role]} />
       </mesh>
       {/* larger invisible target so small points are easy to click */}
@@ -79,6 +131,67 @@ function Point({ word, target, role, hovered, cur, onSelect, onHover }: {
       </Html>
     </group>
   )
+}
+
+// Every embedding drawn as a vector from the origin, fading in from the centre.
+function Stems({ words, roleOf, cur }: { words: string[]; roleOf: (w: string) => Role; cur: Positions }) {
+  const geo = useMemo(() => {
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(words.length * 6), 3))
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(words.length * 6), 3))
+    return g
+  }, [words.length])
+  useEffect(() => () => geo.dispose(), [geo])
+  useFrame(() => {
+    const pos = geo.attributes.position.array as Float32Array
+    const col = geo.attributes.color.array as Float32Array
+    words.forEach((w, i) => {
+      const p = cur.get(w)
+      if (!p) return
+      const role = roleOf(w), k = role === 'base' ? 0.3 : 0.9
+      tmp.set(COLOR[role])
+      pos.set([0, 0, 0, p.x, p.y, p.z], i * 6)
+      col.set([0, 0, 0, tmp.r * k, tmp.g * k, tmp.b * k], i * 6)
+    })
+    geo.attributes.position.needsUpdate = true
+    geo.attributes.color.needsUpdate = true
+  })
+  return (
+    <lineSegments geometry={geo}>
+      <lineBasicMaterial vertexColors transparent blending={THREE.AdditiveBlending} depthWrite={false} />
+    </lineSegments>
+  )
+}
+
+// A light that travels your sentence word by word, in reading order.
+function Runner({ words, cur }: { words: string[]; cur: Positions }) {
+  const s = useRef<THREE.Sprite>(null!)
+  useFrame(({ clock }) => {
+    const pts = words.map(w => cur.get(w)).filter(Boolean) as THREE.Vector3[]
+    if (pts.length < 2) return
+    const f = (clock.elapsedTime * 1.3) % (pts.length - 1), i = Math.floor(f)
+    s.current.position.lerpVectors(pts[i], pts[i + 1], f - i)
+  })
+  return (
+    <sprite ref={s} scale={0.7}>
+      <spriteMaterial map={glow()} color="#FFF1BF" transparent depthWrite={false} blending={THREE.AdditiveBlending} />
+    </sprite>
+  )
+}
+
+// Glides the orbit centre to the selected word, and back to the origin when nothing is selected.
+function Focus({ word, cur }: { word: string | null; cur: Positions }) {
+  const controls = useThree(s => s.controls) as unknown as { target: THREE.Vector3; update: () => void } | null
+  const goal = useMemo(() => new THREE.Vector3(), [])
+  useFrame((_, dt) => {
+    if (!controls) return
+    const p = word ? cur.get(word) : null
+    if (p) goal.copy(p)
+    else goal.set(0, 0, 0)
+    controls.target.lerp(goal, 1 - Math.exp(-dt * 2.5))
+    controls.update()
+  })
+  return null
 }
 
 // A polyline that follows the animated point positions every frame.
@@ -136,15 +249,19 @@ export default function Space({ corpusWords, sentenceWords }: { corpusWords: str
   return (
     <div className="space">
       <div className="space-canvas" onPointerDown={() => setTouched(true)}>
-        <Canvas camera={{ position: [0, 1.6, 10], fov: 50 }} dpr={[1, 2]} onPointerMissed={() => setSelected(null)}>
-          <fog attach="fog" args={['#0F2A4A', 9, 24]} />
-          <gridHelper args={[14, 14, '#2E5680', '#1C3D63']} position={[0, -4.6, 0]} />
-          {all.map(w => (
-            <Point key={w} word={w} target={targets.get(w)!} role={role(w)} hovered={hovered === w} cur={cur} onSelect={setSelected} onHover={setHovered} />
+        <Canvas camera={{ position: [7.5, 4.5, 9.5], fov: 45 }} dpr={[1, 2]} onPointerMissed={() => setSelected(null)}>
+          <fog attach="fog" args={['#0B2240', 13, 30]} />
+          <Axes />
+          <Stems words={all} roleOf={role} cur={cur} />
+          {all.map((w, i) => (
+            <Point key={w} word={w} target={targets.get(w)!} role={role(w)} hovered={hovered === w} delay={(i % 120) * 0.012}
+              cur={cur} onSelect={setSelected} onHover={setHovered} />
           ))}
-          {path.length > 1 && <Path key={'s' + path.join()} words={path} targets={targets} cur={cur} color={COLOR.sentence} width={2} />}
-          {sel && neighbors.map(n => <Path key={sel + n.w} words={[sel, n.w]} targets={targets} cur={cur} color={COLOR.neighbor} width={1.2} />)}
-          <OrbitControls enableDamping enablePan={false} minDistance={3} maxDistance={18} autoRotate={!touched && !reducedMotion()} autoRotateSpeed={0.45} />
+          {path.length > 1 && <Path key={'s' + path.join()} words={path} targets={targets} cur={cur} color={COLOR.sentence} width={2.5} />}
+          {path.length > 1 && !reducedMotion() && <Runner words={path} cur={cur} />}
+          {sel && neighbors.map(n => <Path key={sel + n.w} words={[sel, n.w]} targets={targets} cur={cur} color={COLOR.neighbor} width={1.4} />)}
+          <Focus word={sel} cur={cur} />
+          <OrbitControls makeDefault enableDamping enablePan={false} minDistance={3} maxDistance={22} autoRotate={!touched && !reducedMotion()} autoRotateSpeed={0.4} />
         </Canvas>
 
         <div className="space-toolbar">
@@ -199,6 +316,7 @@ export default function Space({ corpusWords, sentenceWords }: { corpusWords: str
         {sel ? (
           <>
             <h3>{sel}</h3>
+            <code className="coords">({targets.get(sel)!.toArray().map(x => x.toFixed(2)).join(', ')}) in PC space</code>
             <Vector v={vecs[all.indexOf(sel)]} />
             <p className="muted">Its {vecs[0].length} numbers above. Closest by {shown}, measured with all of them, not the 3D view:</p>
             <ol className="neighbors">
