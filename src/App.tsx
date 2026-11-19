@@ -56,7 +56,7 @@ export default function App() {
       <Rail stages={[
         { id: 'train', label: 'Tokens', value: `${model.base + at} in vocab` },
         { id: 'encode', label: 'IDs', value: `${encode(sentence, model, at).length} for your sentence` },
-        { id: 'space', label: 'Vectors', value: `${corpusWords.length + sentenceWords.length} words in 3D` },
+        { id: 'space', label: 'Vectors', value: `${new Set([...corpusWords, ...sentenceWords]).size} words in 3D` },
       ]} />
 
       <main id="top">
