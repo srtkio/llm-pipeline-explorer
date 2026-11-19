@@ -26,3 +26,27 @@ export function inkFor(text: string) {
 export const stripEow = (t: string) => t.endsWith(EOW) ? t.slice(0, -EOW.length) : t
 
 export const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+export const PRESETS = [
+  { name: 'Royalty, animals, food', sentence: 'the princess was playing with the puppies in the castle', corpus: `the king and the queen ruled the kingdom from the castle.
+the prince and the princess danced in the royal palace.
+the cat chased the mouse while the dog barked at the horse.
+the kitten, the puppy and the foal were playing in the field.
+she baked bread, cooked rice and sliced fresh apples and mangoes.
+he was eating bananas, oranges, grapes and cherries for lunch.
+the king, the queen and the prince were eating cake in the palace.` },
+  { name: 'Word endings', sentence: 'the unhappy players were replaying the jumping game', corpus: `play played playing player players playful replay
+jump jumped jumping jumper jumpers
+walk walked walking walker walkers
+teach teacher teaching taught teachers
+happy happier happiest happily unhappy happiness
+kind kinder kindest kindly unkind kindness
+run runner running runs` },
+  { name: 'Feelings, weather, places', sentence: 'the joyful nurse walked to the sunny beach after school', corpus: `she felt happy and joyful when the sun was shining.
+he was sad and lonely while the rain was falling.
+the angry man shouted, the calm woman smiled.
+it was cold and snowy in the mountains, warm and sunny on the beach.
+the doctor and the nurse worked in the hospital.
+the teacher and the student met at the school.
+the pilot flew the plane from the airport to the city.` },
+]

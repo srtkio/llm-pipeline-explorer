@@ -223,3 +223,13 @@ textarea:focus, .sentence:focus { outline: none; border-color: var(--sun); }
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* presets */
+.presets { display: flex; flex-wrap: wrap; gap: 8px; }
+.preset {
+  border: 1px solid var(--rule); background: none; color: var(--mute); cursor: pointer;
+  padding: 7px 14px; border-radius: 999px; font: 500 13px var(--body); transition: color 0.2s, border-color 0.2s;
+}
+.preset:hover { color: var(--paper); border-color: var(--mute); }
+.preset.on { color: var(--ink); background: var(--mint); border-color: var(--mint); }
+.field > label { font-weight: 600; }

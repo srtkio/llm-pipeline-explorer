@@ -2,11 +2,11 @@ import { AnimatePresence, LayoutGroup, motion } from 'framer-motion'
 import { useEffect, useMemo, useState } from 'react'
 import type { Model } from '../lib/bpe'
 import { Chip } from './Chip'
-import { reducedMotion } from '../lib/ui'
+import { PRESETS, reducedMotion } from '../lib/ui'
 
-type Props = { corpus: string; setCorpus: (s: string) => void; model: Model; step: number; setStep: (n: number) => void }
+type Props = { corpus: string; setCorpus: (s: string) => void; model: Model; step: number; setStep: (n: number) => void; setSentence: (s: string) => void }
 
-export function Train({ corpus, setCorpus, model, step, setStep }: Props) {
+export function Train({ corpus, setCorpus, model, step, setStep, setSentence }: Props) {
   const [playing, setPlaying] = useState(false)
   const total = model.merges.length
 
@@ -41,11 +41,17 @@ export function Train({ corpus, setCorpus, model, step, setStep }: Props) {
       </div>
 
       <div className="train-grid">
-        <label className="field">
-          <span>Training text</span>
-          <textarea value={corpus} onChange={e => { setCorpus(e.target.value); setPlaying(false) }} rows={12} spellCheck={false} />
+        <div className="field">
+          <div className="presets" role="group" aria-label="Load sample text">
+            {PRESETS.map(p => (
+              <button key={p.name} className={`preset${corpus === p.corpus ? ' on' : ''}`}
+                onClick={() => { setCorpus(p.corpus); setSentence(p.sentence); setStep(0); setPlaying(true) }}>{p.name}</button>
+            ))}
+          </div>
+          <label htmlFor="corpus">Training text</label>
+          <textarea id="corpus" value={corpus} onChange={e => { setCorpus(e.target.value); setPlaying(false) }} rows={12} spellCheck={false} />
           <small>{corpus.split(/\s+/).filter(Boolean).length} words. Edit anything and the tokenizer retrains instantly.</small>
-        </label>
+        </div>
 
         <div className="merge-panel">
           <div className="merge-controls">

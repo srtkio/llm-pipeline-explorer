@@ -64,7 +64,7 @@ export default function App() {
 
       <main id="top">
         {!intro && <Hero model={HERO_MODEL} />}
-        <Train corpus={corpus} setCorpus={setCorpus} model={model} step={at} setStep={n => setStep(n >= total ? null : n)} />
+        <Train corpus={corpus} setCorpus={setCorpus} model={model} step={at} setStep={n => setStep(n >= total ? null : n)} setSentence={setSentence} />
         <Encode model={model} step={at} sentence={sentence} setSentence={setSentence} />
 
         <section id="space" className="wrap section" ref={spaceRef}>
